@@ -4,23 +4,27 @@ class Parameter(object):
     """Parameters used in molecular dynamics simulation"""
 
     def __init__(self):
-        self._atom_type_vec = ['OW', 'HW1', 'HW2']
+        self._atom_type_vec = ['OW', 'HW1', 'HW2', 'MW']
         # atomic mass
         self._mass_dict = {'OW': 15.999,
                            'HW1': 1.008,
-                           'HW2': 1.008}
+                           'HW2': 1.008,
+                           'MW': 0.000}
         # atomic charge: unit (e)
-        self._charge_dict = {'OW': -0.8476,
-                            'HW1': 0.4238,
-                            'HW2': 0.4238}
+        self._charge_dict = {'OW': 0.0000,
+                            'HW1': 0.5564,
+                            'HW2': 0.5564,
+                            'MW': -1.1128}
         # LJ sigma: unit (nm)
-        self._sigma_dict = {'OW': 0.316557,
+        self._sigma_dict = {'OW': 0.31589,
                            'HW1': 0.,
-                           'HW2': 0.}
+                           'HW2': 0.,
+                           'MW': 0.}
         # LJ epsilon: unit (kJ/mol)
-        self._epsilon_dict = {'OW': 0.65019,
+        self._epsilon_dict = {'OW': 0.7749,
                              'HW1': 0.,
-                             'HW2': 0.}
+                             'HW2': 0.,
+                             'MW': 0}
 
         # check missing parameters
         for atom_type in self._atom_type_vec:
