@@ -121,7 +121,7 @@ class Potential(object):
         coul_mat = np.zeros((self._num_atom, self._num_atom))
         mask = np.where(self._charge_mat != 0)
         coul_mat[mask] = self._charge_mat[mask]/dist_mat[mask]
-        coul_mat *= 138.935458 * 10
+        coul_mat *= 138.935458 * 10 # 10 is angstrom -> nm conversion
         return(coul_mat)
 
            
