@@ -2,22 +2,36 @@ from __future__ import print_function, division, absolute_import
 
 import numpy as np
 
+def distance_matrix(pos_mat):
+    """Calculate distance matrix of given position matrix
 
-def center_of_mass(pos_mat, box_vec):
+    Parameters
+    ----------
+    pos_mat : float[:,:], shape = (num_atoms, 3)
+
+    Returns
+    -------
+    dist_mat : float[:,:], shape = (num_atoms, num_atoms)
+    """
+    num_atoms = len(pos_mat)
+    dist_mat = np.array([np.linalg.norm(pos_mat-pos_mat[i], axis=1)
+                         for i in range(num_atoms)])
+    return(dist_mat)
+
+
+def center_of_mass(pos_mat):
     """Calculate center of mass of given position matrix
 
     Parameters
     ----------
     pos_mat : float[:,:], shape = (num_atoms, 3)
-    box_vec : float[:], shape = 3
 
     Returns
     -------
     com_vec : float[:], shape = 3
     """
-    pbc_pos_mat = check_pbc(pos_mat[0], pos_mat, box_vec)
-    com_vec = np.sum(pbc_pos_mat, axis=0)
-    com_vec /= len(pbc_pos_mat)
+    com_vec = np.sum(pos_mat, axis=0)
+    com_vec /= len(pos_mat)
     return(com_vec)
 
 

@@ -9,7 +9,10 @@ import util
 
 
 class Potential(object):
-    """Calculate radial density of system."""
+    """Calculate potential of system.
+    It can calculate potential of TIP4P/2005 system.
+    Further modification is required.
+    """
 
     def __init__(self, universe):
         """
@@ -20,12 +23,13 @@ class Potential(object):
 
         """
         self._universe = universe
-        self._box_mat = np.array([ts.dimensions for ts in self._universe.trajectory])
         self._atom_vec = self._universe.select_atoms('all')
-        self._mass_vec = self._initialize_parameters(Parameter())
 
         self._num_frame = len(self._universe.trajectory)
         self._num_atom = len(self._atom_vec)
+
+        self._param = Parameter()
+        self._charge_mat, self._sigma_mat, self._epsilon_mat = self._initialize_parameters(self._param)
 
 
     def _initialize_parameters(self, param):
@@ -38,58 +42,83 @@ class Potential(object):
 
         Returns
         -------
-        mass_vec : float[:], shape = (num_atom)
-
+        charge_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+            q_i * q_j
+        sigma_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+            (sigma_i+sigma_j)/2
+        epsilon_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+            sqrt(eps_i*eps_j)
         """
-        mass_dict = param.mass_dict
         atom_name_vec = self._atom_vec.names
-        mass_vec = np.array([mass_dict[i] for i in atom_name_vec])
-        return(mass_vec)
+        charge_mat = np.array([[self._param.charge_dict[i]*self._param.charge_dict[j]
+                                for j in atom_name_vec]
+                                for i in atom_name_vec])
+        sigma_mat = np.array([[(self._param.sigma_dict[i]+self._param.sigma_dict[j])*0.5
+                                for j in atom_name_vec]
+                                for i in atom_name_vec])
+        sigma_mat *= 10
+        epsilon_mat = np.array([[np.sqrt(self._param.epsilon_dict[i]*self._param.epsilon_dict[j])
+                                for j in atom_name_vec]
+                                for i in atom_name_vec])
+
+        np.fill_diagonal(charge_mat, 0)
+        np.fill_diagonal(sigma_mat, 0)
+        np.fill_diagonal(epsilon_mat, 0)
+        return(charge_mat, sigma_mat, epsilon_mat)
 
 
-    def radial_density(self, r_vec, atom_name):
-        """Calculate radial density of system.
-        Parameters
-        ----------
-        r_vec : float[:]
-            radial position vector. Distance between two points should be equal.
-        atom_name_list : str
-            atomname for calcuating radial density.
-            Ex) atom_name_list = 'OW' -> density of water oxygen atoms.
+    def _potential_matrix(self):
+        """Calculate potential matrix of nanodroplet.
         Returns
         -------
-        rad_den_mat : float[:,:], shape = (len(r_vec), 2), unit = (#/A3)
-            2 columns contain r and rho(r).
+        pot_mat : float[:,:], shape = (self._num_atom, self._num_atom), unit = (kJ/mol)
         """
-        if isinstance(atom_name, list):
-            print("Calculate density of multiple atom species is not yet supported.")
-            exit(1)
+        pot_mat = np.zeros((self._num_atom, self._num_atom))
 
-        r_min = r_vec[0]
-        dr = r_vec[1] - r_vec[0]
-
-        vol_vec = np.zeros_like(r_vec)
-        for i, r in enumerate(r_vec):
-            vol_vec[i] += 4*np.pi/3*((r+dr)**3 - (r-dr)**3)
-
-        rad_den_mat = np.zeros((len(r_vec), 2))
-        rad_den_mat[:,0] += r_vec
         for ts in tqdm(self._universe.trajectory, total=self._num_frame):
-            box_vec = ts.dimensions[:3]
+            box_vec = ts.dimensions[:3] 
             pos_atom_mat = self._atom_vec.positions
-            atom_name_vec = self._atom_vec.names
-            atom_sel_mask = (atom_name_vec == atom_name)
-            pos_sel_mat = pos_atom_mat[atom_sel_mask]
-            pos_sel_mat -= util.center_of_mass(pos_sel_mat, box_vec)
-            rad_pos_vec = np.linalg.norm(pos_sel_mat, axis=1)
-            idx_rad_vec = np.floor(((rad_pos_vec - r_min)/dr)).astype(int)
+            pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+            dist_atom_mat = util.distance_matrix(pbc_pos_atom_mat)
 
-            for idx_rad in idx_rad_vec:
-                rad_den_mat[idx_rad,1] += 1
+            pot_mat += self._lennard_jones(dist_atom_mat)
+            pot_mat += self._coulomb(dist_atom_mat)
 
-        rad_den_mat[:,1] /= vol_vec * self._num_frame
+        return(pot_mat)
 
-        return(rad_den_mat)
+
+    def _lennard_jones(self, dist_mat):
+        """Calculate lennard jones potential matrix of given distance matrix
+        Parameters
+        ----------
+        dist_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        
+        Returns
+        -------
+        lj_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        """
+        r6_mat = np.zeros((self._num_atom, self._num_atom))
+        mask = np.where(self._epsilon_mat != 0)
+        r6_mat[mask] = (self._sigma_mat[mask]/dist_mat[mask])**6
+        lj_mat = 4*self._epsilon_mat*r6_mat*(r6_mat-1)
+        return(lj_mat)
+
+
+    def _coulomb(self, dist_mat):
+        """Calculate coulomb potential matrix of given distance matrix
+        Parameters
+        ----------
+        dist_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        
+        Returns
+        -------
+        coul_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        """
+        coul_mat = np.zeros((self._num_atom, self._num_atom))
+        mask = np.where(self._charge_mat != 0)
+        coul_mat[mask] = self._charge_mat[mask]/dist_mat[mask]
+        coul_mat *= 138.935458
+        return(coul_mat)
 
            
    

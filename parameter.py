@@ -4,6 +4,7 @@ class Parameter(object):
     """Parameters used in molecular dynamics simulation"""
 
     def __init__(self):
+        self._water_model = 'TIP4P/2005'
         self._atom_type_vec = ['OW', 'HW1', 'HW2', 'MW']
         # atomic mass
         self._mass_dict = {'OW': 15.999,
@@ -36,6 +37,10 @@ class Parameter(object):
                 raise KeyError('You miss LJ sigma parameter of atom.')
             if atom_type not in self._epsilon_dict:
                 raise KeyError('You miss LJ epsilon parameter of atom.')
+
+    @property
+    def water_model(self):
+        return self._water_model
 
     @property
     def mass_dict(self):

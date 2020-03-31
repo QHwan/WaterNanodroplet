@@ -20,12 +20,13 @@ class Density(object):
 
         """
         self._universe = universe
-        self._box_mat = np.array([ts.dimensions for ts in self._universe.trajectory])
         self._atom_vec = self._universe.select_atoms('all')
-        self._mass_vec = self._initialize_parameters(Parameter())
 
         self._num_frame = len(self._universe.trajectory)
         self._num_atom = len(self._atom_vec)
+
+        self._param = Parameter()
+        self._mass_vec = self._initialize_parameters(self._param)
 
 
     def _initialize_parameters(self, param):
@@ -80,7 +81,8 @@ class Density(object):
             atom_name_vec = self._atom_vec.names
             atom_sel_mask = (atom_name_vec == atom_name)
             pos_sel_mat = pos_atom_mat[atom_sel_mask]
-            pos_sel_mat -= util.center_of_mass(pos_sel_mat, box_vec)
+            pbc_pos_sel_mat = util.check_pbc(pos_sel_mat[0], pos_sel_mat, box_vec)
+            pos_sel_mat -= util.center_of_mass(pbc_pos_sel_mat)
             rad_pos_vec = np.linalg.norm(pos_sel_mat, axis=1)
             idx_rad_vec = np.floor(((rad_pos_vec - r_min)/dr)).astype(int)
 
