@@ -5,6 +5,8 @@ from tqdm import tqdm
 import MDAnalysis as md
 
 from parameter import Parameter
+import util
+
 
 class RadialDensity(object):
     """Calculate radial density of system."""
@@ -64,7 +66,6 @@ class RadialDensity(object):
             exit(1)
 
         r_min = r_vec[0]
-        r_max = r_vec[-1]
         dr = r_vec[1] - r_vec[0]
 
         vol_vec = np.zeros_like(r_vec)
@@ -79,76 +80,16 @@ class RadialDensity(object):
             atom_name_vec = self._atom_vec.names
             atom_sel_mask = (atom_name_vec == atom_name)
             pos_sel_mat = pos_atom_mat[atom_sel_mask]
-            pos_sel_mat -= self._center_of_mass(pos_sel_mat, box_vec)
-            rad_dist_vec = np.linalg.norm(pos_sel_mat, axis=1)
-            idx_rad_vec = np.floor(((rad_dist_vec - r_min - 0.5*dr)/dr)).astype(int)
+            pos_sel_mat -= util.center_of_mass(pos_sel_mat, box_vec)
+            rad_pos_vec = np.linalg.norm(pos_sel_mat, axis=1)
+            idx_rad_vec = np.floor(((rad_pos_vec - r_min)/dr)).astype(int)
 
-            for j, idx_rad in enumerate(idx_rad_vec):
+            for idx_rad in idx_rad_vec:
                 rad_den_mat[idx_rad,1] += 1
 
         rad_den_mat[:,1] /= vol_vec * self._num_frame
 
         return(rad_den_mat)
 
-
-    def _center_of_mass(self, pos_mat, box_vec):
-        """Calculate center of mass of given position matrix
-
-        Parameters
-        ----------
-        pos_mat : float[:,:], shape = (num_atoms, 3)
-        box_vec : float[:], shape = 3
-
-        Returns
-        -------
-        com_vec : float[:], shape = 3
-        """
-        pbc_pos_mat = self._check_pbc(pos_mat[0], pos_mat, box_vec)
-        com_vec = np.sum(pbc_pos_mat, axis=0)
-        com_vec /= len(pbc_pos_mat)
-        return(com_vec)
-
-    
-    def _check_pbc(self, ref_pos_vec, pos_mat, box_vec):
-        """Check periodicity of system and move atom positions
-
-        Parameters
-        ----------
-        ref_pos_vec : float[:], shape = 3
-        pos_mat : float[:,:], shape = (num_atoms, 3)
-        box_vec : float[:], shape = 3
-
-        Returns
-        -------
-        pbc_pos_mat : float[:,:], shape = (num_atoms, 3)
-        """
-        pbc_pos_mat = np.copy(pos_mat)
-        for i in range(3):
-            mask1 = pos_mat[:,i] - ref_pos_vec[i] > box_vec[i]/2 
-            mask2 = ref_pos_vec[i] - pos_mat[:,i] > box_vec[i]/2
-            pbc_pos_mat[mask1,i] -= box_vec[i]
-            pbc_pos_mat[mask2,i] += box_vec[i]
-        return(pbc_pos_mat)
-
-            
-    def _running_mean(self, x):
-        """Calculate running mean of x
-
-        Parameters
-        ----------
-        x : float[:]
-
-        Returns
-        -------
-        run_x : float[:], shape_like x
-        """
-        run_x = np.zeros_like(x)
-        for i in range(len(x)):
-            if i == 0:
-                avg = x[i]
-            else:
-                avg *= i
-                avg += x[i]
-                avg /= (i+1)
-            run_x[i] = avg
-        return run_x
+           
+   
