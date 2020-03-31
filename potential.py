@@ -29,12 +29,13 @@ class Potential(object):
         self._num_atom = len(self._atom_vec)
 
         self._param = Parameter()
-        self._charge_mat, self._sigma_mat, self._epsilon_mat = self._initialize_parameters(self._param)
+        self._charge_vec, self._sigma_vec, self._epsilon_vec = self._initialize_parameters(self._param)
 
 
     def _initialize_parameters(self, param):
         """Initialize relevant parameters of atoms
         which cannot obtained from MDAnalysis module.
+        Return flattend matrix: 2D -> 1D.
 
         Parameters
         ----------
@@ -42,11 +43,11 @@ class Potential(object):
 
         Returns
         -------
-        charge_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        charge_vec : float[:], shape = (self._num_atom * self._num_atom)
             q_i * q_j
-        sigma_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        sigma_vec : float[:], shape = (self._num_atom * self._num_atom)
             (sigma_i+sigma_j)/2
-        epsilon_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        epsilon_vec : float[:], shape = (self._num_atom * self._num_atom)
             sqrt(eps_i*eps_j)
         """
         atom_name_vec = self._atom_vec.names
@@ -68,7 +69,7 @@ class Potential(object):
         #np.fill_diagonal(charge_mat, 0)
         np.fill_diagonal(sigma_mat, 0)
         np.fill_diagonal(epsilon_mat, 0)
-        return(charge_mat, sigma_mat, epsilon_mat)
+        return(charge_mat.ravel(), sigma_mat.ravel(), epsilon_mat.ravel())
 
 
     def _potential_matrix(self):
@@ -83,46 +84,47 @@ class Potential(object):
             box_vec = ts.dimensions[:3] 
             pos_atom_mat = self._atom_vec.positions
             pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
-            dist_atom_mat = util.distance_matrix(pbc_pos_atom_mat)
+            dist_atom_vec = util.distance_vector(pbc_pos_atom_mat)
 
-            pot_mat += self._lennard_jones(dist_atom_mat)
-            pot_mat += self._coulomb(dist_atom_mat)
+            pot_mat += self._lennard_jones(dist_atom_vec)
+            pot_mat += self._coulomb(dist_atom_vec)
 
         return(pot_mat)
 
 
-    def _lennard_jones(self, dist_mat):
+    def _lennard_jones(self, dist_vec):
         """Calculate lennard jones potential matrix of given distance matrix
         Parameters
         ----------
-        dist_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        dist_mat : float[:], shape = (self._num_atom * self._num_atom)
         
         Returns
         -------
         lj_mat : float[:,:], shape = (self._num_atom, self._num_atom)
         """
-        r6_mat = np.zeros((self._num_atom, self._num_atom))
-        mask = np.where(self._epsilon_mat != 0)
-        r6_mat[mask] = (self._sigma_mat[mask]/dist_mat[mask])**6
-        lj_mat = 4*self._epsilon_mat*r6_mat*(r6_mat-1)
-        return(lj_mat)
+        lj_vec = np.zeros(self._num_atom**2)
+        r6_vec = np.zeros_like(lj_vec)
+        mask = np.where(self._epsilon_vec != 0)
+        r6_vec[mask] = (self._sigma_vec[mask]/dist_vec[mask])**6
+        lj_vec[mask] = 4*self._epsilon_vec[mask]*r6_vec[mask]*(r6_vec[mask]-1)
+        return(lj_vec.reshape((self._num_atom, self._num_atom)))
 
 
-    def _coulomb(self, dist_mat):
+    def _coulomb(self, dist_vec):
         """Calculate coulomb potential matrix of given distance matrix
         Parameters
         ----------
-        dist_mat : float[:,:], shape = (self._num_atom, self._num_atom)
+        dist_vec : float[:], shape = (self._num_atom * self._num_atom)
         
         Returns
         -------
         coul_mat : float[:,:], shape = (self._num_atom, self._num_atom)
         """
-        coul_mat = np.zeros((self._num_atom, self._num_atom))
-        mask = np.where(self._charge_mat != 0)
-        coul_mat[mask] = self._charge_mat[mask]/dist_mat[mask]
-        coul_mat *= 138.935458 * 10 # 10 is angstrom -> nm conversion
-        return(coul_mat)
+        coul_vec = np.zeros(self._num_atom**2)
+        mask = np.where(self._charge_vec != 0)
+        coul_vec[mask] = self._charge_vec[mask]/dist_vec[mask]
+        coul_vec *= 138.935458 * 10 # 10 is angstrom -> nm conversion
+        return(coul_vec.reshape((self._num_atom, self._num_atom)))
 
            
 
@@ -134,10 +136,10 @@ if __name__ == "__main__":
     box_vec = u.trajectory[0].dimensions[:3] 
     pos_atom_mat = pot._atom_vec.positions
     pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
-    dist_atom_mat = util.distance_matrix(pbc_pos_atom_mat)
+    dist_atom_vec = util.distance_vector(pbc_pos_atom_mat)
 
-    lj_mat = pot._lennard_jones(dist_atom_mat)
-    coul_mat = pot._coulomb(dist_atom_mat)
+    lj_mat = pot._lennard_jones(dist_atom_vec)
+    coul_mat = pot._coulomb(dist_atom_vec)
 
     print('#############################################')
     print('######## Unit Test: Potential Module ########')

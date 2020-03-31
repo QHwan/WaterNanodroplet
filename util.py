@@ -1,9 +1,11 @@
 from __future__ import print_function, division, absolute_import
 
 import numpy as np
+from numba import vectorize, float64
 
-def distance_matrix(pos_mat):
-    """Calculate distance matrix of given position matrix
+
+def distance_vector(pos_mat):
+    """Calculate flattend distance vector of given position matrix
 
     Parameters
     ----------
@@ -11,12 +13,12 @@ def distance_matrix(pos_mat):
 
     Returns
     -------
-    dist_mat : float[:,:], shape = (num_atoms, num_atoms)
+    dist_mat : float[:], shape = (num_atoms * num_atoms)
     """
     num_atoms = len(pos_mat)
-    dist_mat = np.array([np.linalg.norm(pos_mat-pos_mat[i], axis=1)
-                         for i in range(num_atoms)])
-    return(dist_mat)
+    dist_vec = np.array([np.sqrt(np.einsum('ij,ij->i', pos_mat-pos_mat[i], pos_mat-pos_mat[i]))
+                         for i in range(num_atoms)]).ravel() # einsum is fastest
+    return(dist_vec)
 
 
 def center_of_mass(pos_mat):
