@@ -8,7 +8,7 @@ from parameter import Parameter
 import util
 
 
-class RadialDensity(object):
+class Potential(object):
     """Calculate radial density of system."""
 
     def __init__(self, universe):
