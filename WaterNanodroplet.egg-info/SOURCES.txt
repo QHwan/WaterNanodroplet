@@ -1,0 +1,8 @@
+setup.py
+WaterNanodroplet.egg-info/PKG-INFO
+WaterNanodroplet.egg-info/SOURCES.txt
+WaterNanodroplet.egg-info/dependency_links.txt
+WaterNanodroplet.egg-info/not-zip-safe
+WaterNanodroplet.egg-info/top_level.txt
+unittest/__init__.py
+unittest/test_potential.py

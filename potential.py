@@ -61,7 +61,11 @@ class Potential(object):
                                 for j in atom_name_vec]
                                 for i in atom_name_vec])
 
-        np.fill_diagonal(charge_mat, 0)
+        for i in range(int(self._num_atom/4)):
+            for j in range(4):
+                for k in range(4):
+                    charge_mat[4*i+j, 4*i+k] = 0
+        #np.fill_diagonal(charge_mat, 0)
         np.fill_diagonal(sigma_mat, 0)
         np.fill_diagonal(epsilon_mat, 0)
         return(charge_mat, sigma_mat, epsilon_mat)
@@ -117,8 +121,33 @@ class Potential(object):
         coul_mat = np.zeros((self._num_atom, self._num_atom))
         mask = np.where(self._charge_mat != 0)
         coul_mat[mask] = self._charge_mat[mask]/dist_mat[mask]
-        coul_mat *= 138.935458
+        coul_mat *= 138.935458 * 10
         return(coul_mat)
 
            
-   
+
+
+## Test Suite ##
+if __name__ == "__main__":
+    u = md.Universe('trj/md3.tpr', 'trj/md3.gro')
+    pot = Potential(u)
+    box_vec = u.trajectory[0].dimensions[:3] 
+    pos_atom_mat = pot._atom_vec.positions
+    pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+    dist_atom_mat = util.distance_matrix(pbc_pos_atom_mat)
+
+    lj_mat = pot._lennard_jones(dist_atom_mat)
+    coul_mat = pot._coulomb(dist_atom_mat)
+
+    print('#############################################')
+    print('######## Unit Test: Potential Module ########')
+    print('#############################################')
+    print('\n')
+    print('Potential calculated from WaterNanodroplet.potential module')
+    print('-----------------------------------------------------------')
+    print('LJ: {lj}, Coul: {coul}'.format(lj=np.sum(lj_mat)/2,
+                                          coul=np.sum(coul_mat)/2))
+    print('\n')
+    print('Potential calculated from gromacs gmx energy')
+    print('--------------------------------------------')
+    print('LJ: {lj}, Coul: {coul}'.format(lj=3.9041, coul=-25.7737))
