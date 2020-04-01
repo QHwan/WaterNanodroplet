@@ -1,7 +1,6 @@
 from __future__ import print_function, division, absolute_import
 
 import numpy as np
-from numba import vectorize, float64
 
 
 def unit_vector(v):
@@ -16,7 +15,7 @@ def unit_vector(v):
     -------
     uv : unit vector of v
     """
-    return(v/np.linalg.norm(v, axis=1).reshape(-1,1))
+    return(v/np.sqrt(np.einsum('ij,ij->i',v,v)).reshape(-1,1)) # einsum is best
 
 
 def distance_vector(pos_mat):
@@ -32,7 +31,7 @@ def distance_vector(pos_mat):
     """
     num_atoms = len(pos_mat)
     dist_vec = np.array([np.sqrt(np.einsum('ij,ij->i', pos_mat-pos_mat[i], pos_mat-pos_mat[i]))
-                         for i in range(num_atoms)]).ravel() # einsum is fastest
+                         for i in range(num_atoms)]).ravel() # einsum is best
     return(dist_vec)
 
 

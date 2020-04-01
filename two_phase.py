@@ -79,7 +79,7 @@ class TwoPhaseThermodynamics(object):
             box_vec = ts.dimensions
             pos_atom_mat = self._atom_vec.positions
             vel_atom_mat = self._atom_vec.velocities
-            vel_trn_mat3[i], vel_rot_mat3[i], I_vec = self._decompose_velocity(pos_atom_mat, vel_atom_mat, box_vec)
+            vel_trn_mat3[i], vel_rot_mat3[i], I_mat = self._decompose_velocity(pos_atom_mat, vel_atom_mat, box_vec)
 
         for i in tqdm(range(len(t_vec))):
             vel_trn_0 = vel_trn_mat3[0:-1-i].reshape((-1,3))
@@ -88,15 +88,12 @@ class TwoPhaseThermodynamics(object):
             denominator = inner1d(vel_trn_0, vel_trn_0)
             vel_corr_mat[i,1] += np.sum(numerator/denominator)
 
+        I_vec = np.array([I_mat[0,0], I_mat[1,1], I_mat[2,2]])
         for i in tqdm(range(len(t_vec))):
             vel_rot_0 = vel_rot_mat3[0:-1-i].reshape((-1,3))
             vel_rot_t = vel_rot_mat3[i:-1].reshape((-1,3))
-            #vel_rot_0[:,2] = 0
-            #vel_rot_t[:,2] = 0
-            numerator = inner1d(vel_rot_0, vel_rot_t)
+            numerator = inner1d(I_vec*vel_rot_0, vel_rot_t)
             denominator = inner1d(vel_rot_0, vel_rot_0)
-            #numerator = vel_rot_0 * vel_rot_t
-            #denominator = vel_rot_0 * vel_rot_0
             vel_corr_mat[i,2] += np.sum(numerator/denominator)
     
         vel_corr_mat[:,1] /= vel_corr_mat[0,1]
@@ -130,13 +127,11 @@ class TwoPhaseThermodynamics(object):
         if translation:
             vel_trn_mat = self._translation_velocity(vel_atom_mat)
         if rotation:
-            vel_rot_mat, I_vec = self._rotation_velocity(pos_atom_mat, 
+            vel_rot_mat, I_mat = self._rotation_velocity(pos_atom_mat, 
                                                   vel_atom_mat,
-                                                  vel_trn_mat,
                                                   box_vec)
 
-        return(vel_trn_mat, vel_rot_mat, I_vec)
-
+        return(vel_trn_mat, vel_rot_mat, I_mat)
 
 
     def _translation_velocity(self, vel_atom_mat):
@@ -157,7 +152,7 @@ class TwoPhaseThermodynamics(object):
         return(vel_trn_mat)
 
 
-    def _rotation_velocity(self, pos_atom_mat, vel_atom_mat, vel_trn_mat, box_vec):
+    def _rotation_velocity(self, pos_atom_mat, vel_atom_mat, box_vec):
         """Calculate rotational velocity of molecule.
         Note: calculation of translational velocity should be preceded.
 
@@ -165,7 +160,6 @@ class TwoPhaseThermodynamics(object):
         ----------
         pos_atom_mat : float[:,:], shape = (num_atom, 3)
         vel_atom_mat : float[:,:], shape = (num_atom, 3)
-        vel_trn_mat : float[:,:], shape = (num_mol, 3)
         box_vec : float[:], shape = 3
 
         Returns
@@ -174,7 +168,7 @@ class TwoPhaseThermodynamics(object):
             It containes angular velocity, w along three principal axes.
         """
         num_atom = len(pos_atom_mat)
-        num_mol = len(vel_trn_mat)
+        num_mol = int(num_atom/3)
 
         pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
         pos_com_mat = np.sum((pbc_pos_atom_mat*self._mass_vec.reshape((-1,1))).reshape((num_mol,3,3)), axis=1)
@@ -182,17 +176,14 @@ class TwoPhaseThermodynamics(object):
 
         # retract pos_com
         rel_pos_atom_mat = pbc_pos_atom_mat - np.repeat(pos_com_mat, repeats=3, axis=0)
-        rel_pos_mol_mat3 = rel_pos_atom_mat.reshape((num_mol, 3, 3))
-
-        # retract vel_com
-        #rel_vel_atom_mat = vel_atom_mat - np.repeat(vel_trn_mat, repeats=3, axis=0)
-        rel_vel_atom_mat = vel_atom_mat
 
         # construct frame_rot_mat
         frame_rot_mat3 = np.zeros((num_mol, 3, 3))
         # x->dipolar axis, y->h2-h1, z->x x y
-        frame_rot_mat3[:,0] = util.unit_vector(-2*rel_pos_mol_mat3[:,0] + rel_pos_mol_mat3[:,1] + rel_pos_mol_mat3[:,2])
-        frame_rot_mat3[:,1] = util.unit_vector(rel_pos_mol_mat3[:,2] - rel_pos_mol_mat3[:,1])
+        frame_rot_mat3[:,0] = util.unit_vector(-2*rel_pos_atom_mat[::3] +
+                                                  rel_pos_atom_mat[1::3] +
+                                                  rel_pos_atom_mat[2::3])
+        frame_rot_mat3[:,1] = util.unit_vector(rel_pos_atom_mat[2::3] - rel_pos_atom_mat[1::3])
         frame_rot_mat3[:,2] = np.cross(frame_rot_mat3[:,0], frame_rot_mat3[:,1])
         
         # rotate frame: R -> r (lab -> molecular)
@@ -200,34 +191,28 @@ class TwoPhaseThermodynamics(object):
         new_vel_atom_mat = np.zeros((num_atom, 3))
         for j in range(3):
             new_pos_atom_mat[:,j] = inner1d(np.repeat(frame_rot_mat3,3,axis=0)[:,j], rel_pos_atom_mat)
-            new_vel_atom_mat[:,j] = inner1d(np.repeat(frame_rot_mat3,3,axis=0)[:,j], rel_vel_atom_mat)
+            new_vel_atom_mat[:,j] = inner1d(np.repeat(frame_rot_mat3,3,axis=0)[:,j], vel_atom_mat)
 
         # inertia moment vector
-        I_vec = np.zeros(3)
-        I_vec[0] = np.sum((new_pos_atom_mat[:3,1]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
-        I_vec[1] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
-        I_vec[2] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**1)*self._mass_vec[:3])
-        #I_vec = np.sum(new_pos_atom_mat[:3]**2 * self._mass_vec.reshape(-1,1)[:3], axis=0)
-        I_mat = np.diag(I_vec)
+        I_mat = np.zeros((3,3))
+        I_mat[0,0] = np.sum((new_pos_atom_mat[:3,1]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
+        I_mat[1,1] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
+        I_mat[2,2] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**1)*self._mass_vec[:3])
         I_inv_mat = np.linalg.inv(I_mat)
         
         # ww : L = m(r x v) = Iw
         L_mat = np.zeros((num_mol, 3))
-        for j in range(num_mol):
-            L_mat[j] += self._param.mass_dict['OW'] * np.cross(new_pos_atom_mat[3*j],
-                                                               new_vel_atom_mat[3*j])
-            L_mat[j] += self._param.mass_dict['HW1'] * np.cross(new_pos_atom_mat[3*j+1],
-                                                               new_vel_atom_mat[3*j+1])
-            L_mat[j] += self._param.mass_dict['HW1'] * np.cross(new_pos_atom_mat[3*j+2],
-                                                               new_vel_atom_mat[3*j+2])
+        L_mat += self._param.mass_dict['OW'] * np.cross(new_pos_atom_mat[::3],
+                                                        new_vel_atom_mat[::3])
+        L_mat += self._param.mass_dict['HW1'] * np.cross(new_pos_atom_mat[1::3],
+                                                         new_vel_atom_mat[1::3])
+        L_mat += self._param.mass_dict['HW1'] * np.cross(new_pos_atom_mat[2::3],
+                                                         new_vel_atom_mat[2::3])
 
         # finally vel_rot_mat
-        vel_rot_mat = np.zeros((num_mol, 3))
-        for j in range(num_mol):
-            vel_rot_mat[j] = np.matmul(I_inv_mat, L_mat[j])
+        vel_rot_mat = np.matmul(I_inv_mat, L_mat.T).T
 
-        #print(vel_rot_mat[0])
-        return(vel_rot_mat, I_vec)
+        return(vel_rot_mat, I_mat)
 
 
 
