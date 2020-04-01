@@ -14,7 +14,11 @@ ts = u.trajectory[0]
 vel = h2o.velocities
 v = TwoPhaseThermodynamics(u)
 vel_corr_mat = v.velocity_correlation()
+dos = v.density_of_state(vel_corr_mat[:,0],
+                         vel_corr_mat[:,2],
+                         temperature=280)
 
-plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,1], '-o')
-plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,2], '-o')
+plt.plot(dos[:,0], dos[:,1], '-o')
+#plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,1], '-o')
+#plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,2], '-o')
 plt.show()

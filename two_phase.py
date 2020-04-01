@@ -52,6 +52,48 @@ class TwoPhaseThermodynamics(object):
         mass_vec = np.array([mass_dict[i] for i in atom_name_vec])
         return(mass_vec)
 
+    def density_of_state(self, t_vec, vel_corr_vec, temperature):
+        """Calculate density of states(DOS) from velocity correlation.
+
+        Parameters
+        ----------
+        t_vec : float[:]
+        vel_corr_vec : float[:]
+        temperature : float
+
+        Returns
+        -------
+        dos_mat : float[:,:]
+            columns -> freq, dos
+        """
+        dt = t_vec[1] - t_vec[0]
+        n = len(t_vec)
+
+        t_mirror_vec = np.zeros(2*n-1)
+        vel_corr_mirror_vec = np.zeros_like(t_mirror_vec)
+        for i in range(n):
+            t_mirror_vec[i] += -1*t_vec[n-1-i]
+            t_mirror_vec[n+i-1] += t_vec[i]
+            vel_corr_mirror_vec[i] += vel_corr_vec[n-1-i]
+            if i != 0:
+                vel_corr_mirror_vec[n+i-1] += vel_corr_vec[i]
+
+        # ps to cm-1
+        # f = 1/(N*t), 1 Hz = 3.33565*1e-11 cm-1
+        freq_vec = 0.5 * (np.arange(n)*3.33565*1e-11)/(n*dt*1e-12)
+
+        vel_corr_mirror_vec = np.fft.fft(vel_corr_mirror_vec)
+        vel_corr_mirror_vec *= 1/temperature/8.314/4
+
+        freq_vec = freq_vec[range(int(n/2))]
+        vel_corr_mirror_vec = vel_corr_mirror_vec[range(int(n/2))]
+        vel_corr_mirror_vec = np.abs(np.real(vel_corr_mirror_vec))
+
+        dos_mat = np.array([freq_vec,
+                            vel_corr_mirror_vec]).T
+        
+        return(dos_mat)
+
 
     def velocity_correlation(self, t_f=1):
         """Calculate translational and rotation velocity correlaiton.
