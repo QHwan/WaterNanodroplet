@@ -4,6 +4,21 @@ import numpy as np
 from numba import vectorize, float64
 
 
+def unit_vector(v):
+    """Calculate unit vector
+
+    Parameters
+    ----------
+    v : float[:,:], shape = (-1, 3)
+    Note: higher order?
+
+    Returns
+    -------
+    uv : unit vector of v
+    """
+    return(v/np.linalg.norm(v, axis=1).reshape(-1,1))
+
+
 def distance_vector(pos_mat):
     """Calculate flattend distance vector of given position matrix
 

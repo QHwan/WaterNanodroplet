@@ -3,15 +3,18 @@ import matplotlib.pyplot as plt
 import MDAnalysis as md
 
 from density import Density
-from potential import Potential
+from two_phase import TwoPhaseThermodynamics
 
 
-u = md.Universe('trj/md512_280k.tpr',
-                'trj/md512_280k_100frame.xtc')
-r = Potential(u)
+u = md.Universe('trj/2pt0.tpr',
+                'trj/2pt0.trr')
 
-r_vec = np.linspace(0.5, 100.5, 501)
-rad_den_mat = r._potential_matrix()
+h2o = u.select_atoms('name OW or name HW1 or name HW2')
+ts = u.trajectory[0]
+vel = h2o.velocities
+v = TwoPhaseThermodynamics(u)
+vel_corr_mat = v.velocity_correlation()
 
-plt.plot(rad_den_mat[:,0], rad_den_mat[:,1], '-o')
+plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,1], '-o')
+plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,2], '-o')
 plt.show()
