@@ -52,6 +52,7 @@ class TwoPhaseThermodynamics(object):
         mass_vec = np.array([mass_dict[i] for i in atom_name_vec])
         return(mass_vec)
 
+
     def density_of_state(self, t_vec, vel_corr_vec, temperature):
         """Calculate density of states(DOS) from velocity correlation.
 
@@ -95,7 +96,7 @@ class TwoPhaseThermodynamics(object):
         return(dos_mat)
 
 
-    def velocity_correlation(self, t_f=1):
+    def velocity_correlation(self, t_f=0.5):
         """Calculate translational and rotation velocity correlaiton.
         
         Parameters
@@ -127,8 +128,9 @@ class TwoPhaseThermodynamics(object):
             vel_trn_0 = vel_trn_mat3[0:-1-i].reshape((-1,3))
             vel_trn_t = vel_trn_mat3[i:-1].reshape((-1,3))
             numerator = inner1d(vel_trn_0, vel_trn_t)
-            denominator = inner1d(vel_trn_0, vel_trn_0)
-            vel_corr_mat[i,1] += np.sum(numerator/denominator)
+            #denominator = inner1d(vel_trn_0, vel_trn_0)
+            #vel_corr_mat[i,1] += np.sum(numerator/denominator)
+            vel_corr_mat[i,1] += self._mass_h2o*np.mean(numerator)
 
         I_vec = np.array([I_mat[0,0], I_mat[1,1], I_mat[2,2]])
         for i in tqdm(range(len(t_vec))):
@@ -137,9 +139,9 @@ class TwoPhaseThermodynamics(object):
             numerator = inner1d(I_vec*vel_rot_0, vel_rot_t)
             denominator = inner1d(vel_rot_0, vel_rot_0)
             vel_corr_mat[i,2] += np.sum(numerator/denominator)
-    
-        vel_corr_mat[:,1] /= vel_corr_mat[0,1]
-        vel_corr_mat[:,2] /= vel_corr_mat[0,2]
+
+        #vel_corr_mat[:,1] /= vel_corr_mat[0,1]
+        #vel_corr_mat[:,2] /= vel_corr_mat[0,2]
 
         return(vel_corr_mat)
 
