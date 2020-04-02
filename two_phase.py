@@ -83,12 +83,18 @@ class TwoPhaseThermodynamics(object):
         # f = 1/(N*t), 1 Hz = 3.33565*1e-11 cm-1
         freq_vec = 0.5 * (np.arange(n)*3.33565*1e-11)/(n*dt*1e-12)
 
+        # mass and velocity conversion
         vel_corr_mirror_vec = np.fft.fft(vel_corr_mirror_vec)
-        vel_corr_mirror_vec *= 1/temperature/8.314/4
+        # cm unit conversion
+        vel_corr_mirror_vec *= 2/temperature/(1.38*1e-23)*(1/6.02*1e-26)*1e-8
+        #vel_corr_mirror_vec /= (3.33565*1e-11)
+        vel_corr_mirror_vec *= 3.003*1e10
+        # Caution! check it
+        vel_corr_mirror_vec /= 250
 
         freq_vec = freq_vec[range(int(n/2))]
         vel_corr_mirror_vec = vel_corr_mirror_vec[range(int(n/2))]
-        vel_corr_mirror_vec = np.abs(np.real(vel_corr_mirror_vec))
+        vel_corr_mirror_vec = np.abs(np.abs(vel_corr_mirror_vec))
 
         dos_mat = np.array([freq_vec,
                             vel_corr_mirror_vec]).T
@@ -96,29 +102,43 @@ class TwoPhaseThermodynamics(object):
         return(dos_mat)
 
 
-    def velocity_correlation(self, t_f=0.5):
+    def velocity_correlation(self, t_i, t_f, t_c=0.5):
         """Calculate translational and rotation velocity correlaiton.
         
         Parameters
         ----------
+        t_i : float
         t_f : float
+            t_i, t_f -> Start, end time of trajectory
+        t_c : float
             Correlation time.
 
         Returns
         -------
-        vel_corr_mat : float[:,:], shape = (len(corr), 3)
-            Columns -> t, C_trn, C_rot
+        t_vec : float[:], shape = len(corr)
+        trn_corr_mat : float[:,:], shape = (len(corr), num_mol)
+        rot_corr_mat : float[:,:], shape = (len(corr), num_mol)
         """
+        if t_c*2 > t_f - t_i:
+            print("Correlation time is too long. Maximum: half of trajectory.")
+            exit(1)
+
         dt = self._universe.trajectory[1].time - self._universe.trajectory[0].time
-        t_vec = np.arange(0, t_f*1.0001, dt)
-        vel_corr_mat = np.zeros((len(t_vec), 3))
-        vel_corr_mat[:,0] = t_vec
+        t_vec = np.arange(0, t_c*1.0001, dt)
+        frame_i = int(t_i/dt)
+        frame_f = int(t_f/dt)
+        num_frame = frame_f - frame_i + 1
 
         num_mol = int(self._num_atom/3)
-        vel_trn_mat3 = np.zeros((self._num_frame, num_mol, 3))
+        vel_trn_mat3 = np.zeros((num_frame, num_mol, 3))
         vel_rot_mat3 = np.zeros_like(vel_trn_mat3)
 
-        for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
+        trn_corr_mat = np.zeros((len(t_vec), num_mol))
+        rot_corr_mat = np.zeros_like(trn_corr_mat)
+
+        for i in tqdm(range(num_frame)):
+        #for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
+            ts = self._universe.trajectory[frame_i + i]
             box_vec = ts.dimensions
             pos_atom_mat = self._atom_vec.positions
             vel_atom_mat = self._atom_vec.velocities
@@ -127,23 +147,15 @@ class TwoPhaseThermodynamics(object):
         for i in tqdm(range(len(t_vec))):
             vel_trn_0 = vel_trn_mat3[0:-1-i].reshape((-1,3))
             vel_trn_t = vel_trn_mat3[i:-1].reshape((-1,3))
-            numerator = inner1d(vel_trn_0, vel_trn_t)
-            #denominator = inner1d(vel_trn_0, vel_trn_0)
-            #vel_corr_mat[i,1] += np.sum(numerator/denominator)
-            vel_corr_mat[i,1] += self._mass_h2o*np.mean(numerator)
+            trn_corr_mat[i] = self._mass_h2o*np.mean(inner1d(vel_trn_0, vel_trn_t).reshape((-1, num_mol)), axis=0)
 
         I_vec = np.array([I_mat[0,0], I_mat[1,1], I_mat[2,2]])
         for i in tqdm(range(len(t_vec))):
-            vel_rot_0 = vel_rot_mat3[0:-1-i].reshape((-1,3))
+            vel_rot_0 = I_vec*vel_rot_mat3[0:-1-i].reshape((-1,3))
             vel_rot_t = vel_rot_mat3[i:-1].reshape((-1,3))
-            numerator = inner1d(I_vec*vel_rot_0, vel_rot_t)
-            denominator = inner1d(vel_rot_0, vel_rot_0)
-            vel_corr_mat[i,2] += np.sum(numerator/denominator)
+            rot_corr_mat[i] = np.mean(inner1d(vel_rot_0, vel_rot_t).reshape((-1,num_mol)), axis=0)
 
-        #vel_corr_mat[:,1] /= vel_corr_mat[0,1]
-        #vel_corr_mat[:,2] /= vel_corr_mat[0,2]
-
-        return(vel_corr_mat)
+        return(t_vec, trn_corr_mat, rot_corr_mat)
 
 
     def _decompose_velocity(self, pos_atom_mat,
@@ -214,7 +226,8 @@ class TwoPhaseThermodynamics(object):
         num_atom = len(pos_atom_mat)
         num_mol = int(num_atom/3)
 
-        pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+        #pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+        pbc_pos_atom_mat = pos_atom_mat
         pos_com_mat = np.sum((pbc_pos_atom_mat*self._mass_vec.reshape((-1,1))).reshape((num_mol,3,3)), axis=1)
         pos_com_mat /= self._mass_h2o
 
@@ -229,6 +242,7 @@ class TwoPhaseThermodynamics(object):
                                                   rel_pos_atom_mat[2::3])
         frame_rot_mat3[:,1] = util.unit_vector(rel_pos_atom_mat[2::3] - rel_pos_atom_mat[1::3])
         frame_rot_mat3[:,2] = np.cross(frame_rot_mat3[:,0], frame_rot_mat3[:,1])
+
         
         # rotate frame: R -> r (lab -> molecular)
         new_pos_atom_mat = np.zeros((num_atom, 3))
@@ -236,12 +250,13 @@ class TwoPhaseThermodynamics(object):
         for j in range(3):
             new_pos_atom_mat[:,j] = inner1d(np.repeat(frame_rot_mat3,3,axis=0)[:,j], rel_pos_atom_mat)
             new_vel_atom_mat[:,j] = inner1d(np.repeat(frame_rot_mat3,3,axis=0)[:,j], vel_atom_mat)
-
+        
         # inertia moment vector
         I_mat = np.zeros((3,3))
         I_mat[0,0] = np.sum((new_pos_atom_mat[:3,1]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
         I_mat[1,1] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**2)*self._mass_vec[:3])
-        I_mat[2,2] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,2]**1)*self._mass_vec[:3])
+        I_mat[2,2] = np.sum((new_pos_atom_mat[:3,0]**2 + new_pos_atom_mat[:3,1]**2)*self._mass_vec[:3])
+
         I_inv_mat = np.linalg.inv(I_mat)
         
         # ww : L = m(r x v) = Iw

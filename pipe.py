@@ -6,19 +6,21 @@ from density import Density
 from two_phase import TwoPhaseThermodynamics
 
 
-u = md.Universe('trj/2pt0.tpr',
-                'trj/2pt0.trr')
+u = md.Universe('2pt.tpr',
+                '2pt_pbc.trr')
 
 h2o = u.select_atoms('name OW or name HW1 or name HW2')
 ts = u.trajectory[0]
 vel = h2o.velocities
 v = TwoPhaseThermodynamics(u)
-vel_corr_mat = v.velocity_correlation()
-dos = v.density_of_state(vel_corr_mat[:,0],
-                         vel_corr_mat[:,1]/32,
-                         temperature=280)
+t, trn, rot = v.velocity_correlation(t_i=1, t_f=2, t_c=0.5)
 
-plt.plot(dos[:,0], dos[:,1], '-o')
-#plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,1]/32, '-o')
-#plt.plot(vel_corr_mat[:,0], vel_corr_mat[:,2], '-o')
+#print(trn[0])
+
+ref = np.loadtxt('w.2pt.vac')
+
+#plt.errorbar(t, np.mean(rot, axis=1), yerr=np.std(rot, axis=1))
+plt.plot(t, np.mean(rot, axis=1), 'o')
+plt.plot(ref[:,0], ref[:,2]/512, '-')
+plt.xlim((0, 0.2))
 plt.show()
