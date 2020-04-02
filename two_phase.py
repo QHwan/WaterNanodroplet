@@ -136,6 +136,7 @@ class TwoPhaseThermodynamics(object):
         trn_corr_mat = np.zeros((len(t_vec), num_mol))
         rot_corr_mat = np.zeros_like(trn_corr_mat)
 
+        print(frame_i, frame_f, num_frame)
         for i in tqdm(range(num_frame)):
         #for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
             ts = self._universe.trajectory[frame_i + i]
