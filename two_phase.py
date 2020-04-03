@@ -1,12 +1,16 @@
 from __future__ import print_function, division, absolute_import
 
+import math
 import numpy as np
 from numpy.core.umath_tests import inner1d
+import scipy.optimize
 from tqdm import tqdm
 import MDAnalysis as md
 
-from parameter import Parameter
-import util
+from .parameter import Parameter
+from .util import unit_vector
+
+import matplotlib.pyplot as plt
 
 
 class TwoPhaseThermodynamics(object):
@@ -51,6 +55,110 @@ class TwoPhaseThermodynamics(object):
         atom_name_vec = self._atom_vec.names
         mass_vec = np.array([mass_dict[i] for i in atom_name_vec])
         return(mass_vec)
+
+
+    def entropy(self, freq_vec, dos_trn_vec, dos_rot_vec,
+                      temperature, volume):
+        kB = 1.380649*1e-23 # (J/K)
+        N_avo = 6.02214*1e23
+        m = self._mass_h2o * 1e-3 / N_avo # (kg)
+        h = 6.62607*1e-34 # (Js)
+
+        N = 1
+        T = temperature
+        V = volume * 1e-30   # (A3 -> m3)
+
+        I_px, I_py, I_pz = 1.344, 0.5968, 1.9408
+
+        # Decompose dos -> dos_s and dos_g
+        dos0_trn = dos_trn_vec[0]
+        dos0_rot = dos_rot_vec[0]
+
+        delta_trn = (dos0_trn*3.33565*1e-11)*(2/9./N) * \
+                    (math.pi*kB*T/m)**0.5 * \
+                    (N/V)**(1./3.) * \
+                    (6/math.pi)**(2./3.)
+        delta_rot = (dos0_rot*3.35565*1e-11)*(2/9./N) * \
+                    (math.pi*kB*T/m)**0.5 * \
+                    (N/V)**(1./3.) * \
+                    (6/math.pi)**(2./3.)
+
+        def func_trn(f):
+            return(2*(delta_trn**-4.5)*(f**7.5) - 6*(delta_trn**-3)*(f**5) - (delta_trn**-1.5)*(f**3.5) + 6*(delta_trn**-1.5)*(f**2.5) + 2*f - 2)
+        def func_rot(f):
+            return(2*(delta_rot**-4.5)*(f**7.5) - 6*(delta_rot**-3)*(f**5) - (delta_rot**-1.5)*(f**3.5) + 6*(delta_rot**-1.5)*(f**2.5) + 2*f - 2)
+
+        f_trn = scipy.optimize.brentq(func_trn, 0, 1)
+        f_rot = scipy.optimize.brentq(func_rot, 0, 1)
+
+        y_trn = (f_trn**2.5)/(delta_trn**1.5)
+        z_trn = (1 + y_trn + y_trn**2 - y_trn**3)/((1 - y_trn)**3)
+
+        y_rot = (f_rot**2.5)/(delta_rot**1.5)
+        z_rot = (1 + y_rot + y_rot**2 - y_rot**3)/((1 - y_rot)**3)
+
+        # Hard Sphere entropy S_HS/k
+        S_HS_trn = 2.5 + math.log(((2*math.pi*m*kB*T/h/h)**1.5)*V/f_trn/N*z_trn) + y_trn*(3*y_trn-4)/((1-y_trn)**2)
+
+        TA = (h**2)/(8*(math.pi**2)*kB*I_px*1e-18*1e-3/N_avo)
+        TB = (h**2)/(8*(math.pi**2)*kB*I_py*1e-18*1e-3/N_avo)
+        TC = (h**2)/(8*(math.pi**2)*kB*I_pz*1e-18*1e-3/N_avo)
+        S_HS_rot = math.log((((math.pi**0.5)*(math.exp(1)**1.5))/(3))*(((T**3)/(TA*TB*TC))**0.5))
+
+        dos_trn_gas_vec = dos0_trn / (1 + (math.pi*dos0_trn*freq_vec/6/f_trn/N)**2)
+        dos_trn_sol_vec = dos_trn_vec - dos_trn_gas_vec
+        dos_rot_gas_vec = dos0_rot / (1 + (math.pi*dos0_rot*freq_vec/6/f_rot/N)**2)
+        dos_rot_sol_vec = dos_rot_vec - dos_rot_gas_vec
+
+
+        # Setting bhv
+        #bhv_vec = 2.9979*1e10*freq_vec*h/kB/T
+        bhv_vec = freq_vec*h/kB/T/3.33565/1e-11
+
+        # Calculate Entropy
+        W_trn_sol_vec = np.zeros(len(freq_vec))
+        W_trn_gas_vec = np.zeros(len(freq_vec))
+        W_rot_sol_vec = np.zeros(len(freq_vec))
+        W_rot_gas_vec = np.zeros(len(freq_vec))
+
+        for i, bhv in enumerate(bhv_vec):
+            if i != 0:
+                W_trn_sol_vec[i] = bhv/(math.exp(bhv)-1) - math.log(1-math.exp(-bhv))
+                W_rot_sol_vec[i] = bhv/(math.exp(bhv)-1) - math.log(1-math.exp(-bhv))
+            W_trn_gas_vec[i] = 1./3.*S_HS_trn
+            W_rot_gas_vec[i] = 1./3.*S_HS_rot
+
+        S_trn_sol = np.trapz(dos_trn_sol_vec * W_trn_sol_vec, freq_vec) * kB * N_avo/N
+        S_trn_gas = np.trapz(dos_trn_gas_vec * W_trn_gas_vec, freq_vec) * kB * N_avo/N
+        S_trn = S_trn_sol + S_trn_gas
+
+        S_rot_sol = np.trapz(dos_rot_sol_vec * W_rot_sol_vec, freq_vec) * kB * N_avo/N
+        S_rot_gas = np.trapz(dos_rot_gas_vec * W_rot_gas_vec, freq_vec) * kB * N_avo/N
+        S_rot = S_rot_sol + S_rot_gas
+
+
+        return(S_trn, S_rot)
+
+        '''
+        ref = np.loadtxt('w.2pt.pwr')
+        plt.plot(ref[:,0], ref[:,3]/512, 'o', markersize=2)
+        plt.plot(ref[:,0], ref[:,4]/512, 'o', markersize=2)
+        plt.plot(ref[:,0], ref[:,6]/512, 'o', markersize=2)
+
+        plt.plot(freq_vec, dos_rot_gas_vec, linewidth=2)
+        plt.plot(freq_vec, dos_rot_sol_vec, linewidth=2)
+        plt.plot(freq_vec, dos_rot_vec, linewidth=2)
+        plt.xlim((0, 1200))
+        plt.show()
+
+        exit(1)
+        '''
+
+
+
+        
+
+
 
 
     def density_of_state(self, t_vec, vel_corr_vec, temperature):
@@ -136,7 +244,7 @@ class TwoPhaseThermodynamics(object):
         trn_corr_mat = np.zeros((len(t_vec), num_mol))
         rot_corr_mat = np.zeros_like(trn_corr_mat)
 
-        print(frame_i, frame_f, num_frame)
+        print(frame_i*dt, frame_f*dt)
         for i in tqdm(range(num_frame)):
         #for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
             ts = self._universe.trajectory[frame_i + i]
@@ -238,10 +346,10 @@ class TwoPhaseThermodynamics(object):
         # construct frame_rot_mat
         frame_rot_mat3 = np.zeros((num_mol, 3, 3))
         # x->dipolar axis, y->h2-h1, z->x x y
-        frame_rot_mat3[:,0] = util.unit_vector(-2*rel_pos_atom_mat[::3] +
+        frame_rot_mat3[:,0] = unit_vector(-2*rel_pos_atom_mat[::3] +
                                                   rel_pos_atom_mat[1::3] +
                                                   rel_pos_atom_mat[2::3])
-        frame_rot_mat3[:,1] = util.unit_vector(rel_pos_atom_mat[2::3] - rel_pos_atom_mat[1::3])
+        frame_rot_mat3[:,1] = unit_vector(rel_pos_atom_mat[2::3] - rel_pos_atom_mat[1::3])
         frame_rot_mat3[:,2] = np.cross(frame_rot_mat3[:,0], frame_rot_mat3[:,1])
 
         
