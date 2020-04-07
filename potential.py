@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import MDAnalysis as md
 
-from parameter import Parameter
-import util
+from .parameter import Parameter
+from .util import check_pbc, center_of_mass, distance_vector
 
 
 class Potential(object):
@@ -72,24 +72,70 @@ class Potential(object):
         return(charge_mat.ravel(), sigma_mat.ravel(), epsilon_mat.ravel())
 
 
-    def _potential_matrix(self):
-        """Calculate potential matrix of nanodroplet.
+    def potential_matrix(self):
+        """Calculate molecular potential of nanodroplet.
         Returns
         -------
-        pot_mat : float[:,:], shape = (self._num_atom, self._num_atom), unit = (kJ/mol)
+        lj_mat : float[:,:], shape = (self._num_frame, num_mol), unit = (kJ/mol)
+        coul_mat : float[:,:], shape = (self._num_frame, num_mol), unit = (kJ/mol)
         """
-        pot_mat = np.zeros((self._num_atom, self._num_atom))
+        num_mol = int(self._num_atom/4)
+        lj_mat = np.zeros((self._num_frame, num_mol))
+        coul_mat = np.zeros_like(lj_mat)
 
-        for ts in tqdm(self._universe.trajectory, total=self._num_frame):
+        for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
             box_vec = ts.dimensions[:3] 
             pos_atom_mat = self._atom_vec.positions
-            pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
-            dist_atom_vec = util.distance_vector(pbc_pos_atom_mat)
+            pbc_pos_atom_mat = check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+            dist_atom_vec = distance_vector(pbc_pos_atom_mat)
 
-            pot_mat += self._lennard_jones(dist_atom_vec)
-            pot_mat += self._coulomb(dist_atom_vec)
+            lj_mat[i] += np.sum(np.sum(self._lennard_jones(dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
+            coul_mat[i] += np.sum(np.sum(self._coulomb(dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
 
-        return(pot_mat)
+        return(lj_mat, coul_mat)
+
+
+    def perturbed_potential_matrix(self, zeta=1e-5):
+        """Calculate perturbed potential of nanodroplet.
+        Returns
+        -------
+        dlj_mat : float[:,:], shape = (self._num_frame, num_mol), unit = (kJ/mol)
+        dcoul_mat : float[:,:], shape = (self._num_frame, num_mol), unit = (kJ/mol)
+        """
+        num_mol = int(self._num_atom/4)
+        extn_lj_mat = np.zeros((self._num_frame, num_mol))
+        comp_lj_mat = np.zeros_like(extn_lj_mat)
+        extn_coul_mat = np.zeros_like(extn_lj_mat)
+        comp_coul_mat = np.zeros_like(extn_lj_mat)
+
+        for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
+            box_vec = ts.dimensions[:3] 
+            pos_atom_mat = self._atom_vec.positions
+            pbc_pos_atom_mat = check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+
+            com_vec = center_of_mass(pbc_pos_atom_mat[0::4])
+            pbc_pos_atom_mat -= com_vec
+            
+            extn_pos_atom_mat = np.zeros_like(pos_atom_mat)
+            comp_pos_atom_mat = np.zeros_like(pos_atom_mat)
+            
+            extn_pos_atom_mat[0::4] = pbc_pos_atom_mat[0::4]*(1+zeta)
+            comp_pos_atom_mat[0::4] = pbc_pos_atom_mat[0::4]*(1)
+
+            for j in range(1,4):
+                extn_pos_atom_mat[j::4] = extn_pos_atom_mat[0::4] + (pbc_pos_atom_mat[j::4] - pbc_pos_atom_mat[0::4])
+                comp_pos_atom_mat[j::4] = comp_pos_atom_mat[0::4] + (pbc_pos_atom_mat[j::4] - pbc_pos_atom_mat[0::4])
+
+
+            extn_dist_atom_vec = distance_vector(extn_pos_atom_mat)
+            comp_dist_atom_vec = distance_vector(comp_pos_atom_mat)
+
+            extn_lj_mat[i] += np.sum(np.sum(self._lennard_jones(extn_dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
+            extn_coul_mat[i] += np.sum(np.sum(self._coulomb(extn_dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
+            comp_lj_mat[i] += np.sum(np.sum(self._lennard_jones(comp_dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
+            comp_coul_mat[i] += np.sum(np.sum(self._coulomb(comp_dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
+
+        return(extn_lj_mat - comp_lj_mat, extn_coul_mat - comp_coul_mat)
 
 
     def _lennard_jones(self, dist_vec):
@@ -135,8 +181,8 @@ if __name__ == "__main__":
     pot = Potential(u)
     box_vec = u.trajectory[0].dimensions[:3] 
     pos_atom_mat = pot._atom_vec.positions
-    pbc_pos_atom_mat = util.check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
-    dist_atom_vec = util.distance_vector(pbc_pos_atom_mat)
+    pbc_pos_atom_mat = check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
+    dist_atom_vec = distance_vector(pbc_pos_atom_mat)
 
     lj_mat = pot._lennard_jones(dist_atom_vec)
     coul_mat = pot._coulomb(dist_atom_vec)

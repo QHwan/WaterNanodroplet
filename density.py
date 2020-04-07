@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import MDAnalysis as md
 
-from parameter import Parameter
-import util
+from .parameter import Parameter
+from .util import check_pbc, center_of_mass
 
 
 class Density(object):
@@ -71,7 +71,7 @@ class Density(object):
 
         vol_vec = np.zeros_like(r_vec)
         for i, r in enumerate(r_vec):
-            vol_vec[i] += 4*np.pi/3*((r+dr)**3 - (r-dr)**3)
+            vol_vec[i] += 4*np.pi/3*((r+dr)**3 - r**3)
 
         rad_den_mat = np.zeros((len(r_vec), 2))
         rad_den_mat[:,0] += r_vec
@@ -81,12 +81,14 @@ class Density(object):
             atom_name_vec = self._atom_vec.names
             atom_sel_mask = (atom_name_vec == atom_name)
             pos_sel_mat = pos_atom_mat[atom_sel_mask]
-            pbc_pos_sel_mat = util.check_pbc(pos_sel_mat[0], pos_sel_mat, box_vec)
-            pos_sel_mat -= util.center_of_mass(pbc_pos_sel_mat)
+            pbc_pos_sel_mat = check_pbc(pos_sel_mat[0], pos_sel_mat, box_vec)
+            pos_sel_mat -= center_of_mass(pbc_pos_sel_mat)
             rad_pos_vec = np.linalg.norm(pos_sel_mat, axis=1)
-            idx_rad_vec = np.floor(((rad_pos_vec - r_min)/dr)).astype(int)
+            idx_rad_vec = (((rad_pos_vec - r_min)/dr)).astype(int)
 
             for idx_rad in idx_rad_vec:
+                if idx_rad >= len(r_vec):
+                    continue
                 rad_den_mat[idx_rad,1] += 1
 
         rad_den_mat[:,1] /= vol_vec * self._num_frame
