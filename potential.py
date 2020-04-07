@@ -3,6 +3,7 @@ from __future__ import print_function, division, absolute_import
 import numpy as np
 from tqdm import tqdm
 import MDAnalysis as md
+import MDAnalysis.analysis.distances as mdanadist
 
 from .parameter import Parameter
 from .util import check_pbc, center_of_mass, distance_vector
@@ -84,15 +85,14 @@ class Potential(object):
         coul_mat = np.zeros_like(lj_mat)
 
         for i, ts in tqdm(enumerate(self._universe.trajectory), total=self._num_frame):
-            box_vec = ts.dimensions[:3] 
-            pos_atom_mat = self._atom_vec.positions
-            pbc_pos_atom_mat = check_pbc(pos_atom_mat[0], pos_atom_mat, box_vec)
-            dist_atom_vec = distance_vector(pbc_pos_atom_mat)
+            dist_atom_vec = np.zeros((self._num_atom**2))
+            dist_atom_vec = mdanadist.distance_array(self._atom_vec.positions, self._atom_vec.positions, box=ts.dimensions).ravel()
 
             lj_mat[i] += np.sum(np.sum(self._lennard_jones(dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
             coul_mat[i] += np.sum(np.sum(self._coulomb(dist_atom_vec), axis=1).reshape((-1,4)), axis=1)
 
         return(lj_mat, coul_mat)
+
 
 
     def perturbed_potential_matrix(self, zeta=1e-5):

@@ -1,6 +1,7 @@
 from __future__ import print_function, division, absolute_import
 
 import numpy as np
+import MDAnalysis.analysis.distances as mdanadist
 
 
 def unit_vector(v):
@@ -33,6 +34,13 @@ def distance_vector(pos_mat):
     dist_vec = np.array([np.sqrt(np.einsum('ij,ij->i', pos_mat-pos_mat[i], pos_mat-pos_mat[i]))
                          for i in range(num_atoms)]).ravel() # einsum is best
     return(dist_vec)
+
+
+def distance_vector2(pos_mat):
+    num_atoms, _ = len(pos_mat)
+    dist_mat = np.zeros((num_atoms, num_atoms))
+    dist_mat = mdanadist.distance_array(pos_mat, pos_mat)
+    return(dist_mat.ravel())
 
 
 def center_of_mass(pos_mat):
