@@ -4,8 +4,8 @@ import numpy as np
 from tqdm import tqdm
 import MDAnalysis as md
 
-from .parameter import Parameter
-from .util import check_pbc, center_of_mass
+from parameter import Parameter
+from util import check_pbc, center_of_mass
 
 
 class Shape(object):
@@ -20,79 +20,69 @@ class Shape(object):
 
         """
         self._universe = universe
-        self._atom_vec = self._universe.select_atoms('all')
+        self._ow_vec = self._universe.select_atoms('name OW')
 
         self._num_frame = len(self._universe.trajectory)
-        self._num_atom = len(self._atom_vec)
+        self._num_ow = len(self._ow_vec)
 
         self._param = Parameter()
-        self._mass_vec = self._initialize_parameters(self._param)
+        self._mass_ow = self._param._mass_dict['OW']
 
 
-    def _initialize_parameters(self, param):
-        """Initialize relevant parameters of atoms
-        which cannot obtained from MDAnalysis module.
-
+    def _inertia_tensor_frame(self, ow_pos_mat, mass_ow):
+        """Calculate inertia tensor of instanteneous nanodroplet snapshot.
         Parameters
         ----------
-        param : :obj:'parameter.Parameter'
-
+        ow_pos_mat : float[:,:], shape = (num_ow, 3)
+            position matrix of ow atoms.
+        mass_ow : float
+            mass of ow atom.
         Returns
         -------
-        mass_vec : float[:], shape = (num_atom)
-
+        inertia_mat : float[:,:], shape = (3, 3)
+            moment of inertia tensor.
         """
-        mass_dict = param.mass_dict
-        atom_name_vec = self._atom_vec.names
-        mass_vec = np.array([mass_dict[i] for i in atom_name_vec])
-        return(mass_vec)
+        inertia_mat = np.zeros((3, 3))
+        n_row, n_col = ow_pos_mat.shape
+
+        _ow_pos_mat = ow_pos_mat - center_of_mass(ow_pos_mat)
+        r2_vec = _ow_pos_mat[:,0]**2 + _ow_pos_mat[:,1]**2 + _ow_pos_mat[:,2]
+
+        for i, _ow_pos_vec in enumerate(_ow_pos_mat):
+            for j in range(3):
+                inertia_mat[j, j] += r2_vec[i]
+            for j in range(3):
+                for k in range(3):
+                    inertia_mat[j, k] -= _ow_pos_vec[j] * _ow_pos_vec[k]
+
+        inertia_mat *= mass_ow
+
+        return(inertia_mat)
+
+    def _principal_axes(self, inertia_tensor, mass_ow, num_ow):
+        principal_axes = np.zeros(3)
+
+        eigvals, _ = np.linalg.eig(inertia_tensor)
+        eigval_sum = np.sum(eigvals)
+        for i in range(3):
+            principal_axes[i] = eigval_sum - 2*eigvals[i]
+        principal_axes *= 5/2/mass_ow/num_ow
+        principal_axes = np.sqrt(principal_axes)
+        return(principal_axes)
 
 
-    def radial_density(self, r_vec, atom_name):
-        """Calculate radial density of system.
-        Parameters
-        ----------
-        r_vec : float[:]
-            radial position vector. Distance between two points should be equal.
-        atom_name_list : str
-            atomname for calcuating radial density.
-            Ex) atom_name_list = 'OW' -> density of water oxygen atoms.
-        Returns
-        -------
-        rad_den_mat : float[:,:], shape = (len(r_vec), 2), unit = (#/A3)
-            2 columns contain r and rho(r).
-        """
-        if isinstance(atom_name, list):
-            print("Calculate density of multiple atom species is not yet supported.")
-            exit(1)
+        
 
-        r_min = r_vec[0]
-        dr = r_vec[1] - r_vec[0]
 
-        vol_vec = np.zeros_like(r_vec)
-        for i, r in enumerate(r_vec):
-            vol_vec[i] += 4*np.pi/3*((r+dr)**3 - r**3)
+## Test Suite ##
+if __name__ == "__main__":
+    u = md.Universe('trj/md128_280k.tpr', 'trj/md128_280k_1000frame.xtc')
+    shape = Shape(u)
+    ts = shape._universe.trajectory[0]
+    pos_ow = shape._ow_vec.positions
+    inertia_tensor = shape._inertia_tensor_frame(pos_ow, shape._mass_ow)
+    principal_axes = shape._principal_axes(inertia_tensor, shape._mass_ow, shape._num_ow)
 
-        rad_den_mat = np.zeros((len(r_vec), 2))
-        rad_den_mat[:,0] += r_vec
-        for ts in tqdm(self._universe.trajectory, total=self._num_frame):
-            box_vec = ts.dimensions[:3]
-            pos_atom_mat = self._atom_vec.positions
-            atom_name_vec = self._atom_vec.names
-            atom_sel_mask = (atom_name_vec == atom_name)
-            pos_sel_mat = pos_atom_mat[atom_sel_mask]
-            pbc_pos_sel_mat = check_pbc(pos_sel_mat[0], pos_sel_mat, box_vec)
-            pos_sel_mat -= center_of_mass(pbc_pos_sel_mat)
-            rad_pos_vec = np.linalg.norm(pos_sel_mat, axis=1)
-            idx_rad_vec = (((rad_pos_vec - r_min)/dr)).astype(int)
-
-            for idx_rad in idx_rad_vec:
-                if idx_rad >= len(r_vec):
-                    continue
-                rad_den_mat[idx_rad,1] += 1
-
-        rad_den_mat[:,1] /= vol_vec * self._num_frame
-
-        return(rad_den_mat)
-
+    print("Inertia tensor: {}".format(inertia_tensor))
+    print("Principal axes: {}".format(principal_axes))
            
